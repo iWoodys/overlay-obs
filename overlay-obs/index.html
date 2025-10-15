@@ -61,57 +61,53 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
     import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-database.js";
 
-    // 1) ⬇⬇⬇ PONE ACÁ TU CONFIG DE FIREBASE (de la consola). Si no tenés databaseURL, el script la intenta deducir.
-    let firebaseConfig = {
-      const firebaseConfig = {
+    // === Config de Firebase (UNA sola declaración)
+    const firebaseConfig = {
       apiKey: "AIzaSyB_ftb81GpcvFUVuydA8Crz5aaOwC3SAYo",
       authDomain: "overlay-4a8e5.firebaseapp.com",
       databaseURL: "https://overlay-4a8e5-default-rtdb.firebaseio.com",
       projectId: "overlay-4a8e5",
       storageBucket: "overlay-4a8e5.firebasestorage.app",
       messagingSenderId: "620671976127",
-      appId: "1:620671976127:web:757d18aee43f5a39007c0a",
+      appId: "1:620671976127:web:757d18aee43f5a39007c0a"
     };
 
-    // 👉 Si falta databaseURL, intentamos deducirla automáticamente
-    // Formatos posibles:
-    //  - https://<PROJECT_ID>-default-rtdb.firebaseio.com
-    //  - https://<PROJECT_ID>-default-rtdb.firebasedatabase.app
+    // (Opcional) Deducción automática si faltara databaseURL
     if (!firebaseConfig.databaseURL && firebaseConfig.projectId && typeof firebaseConfig.projectId === 'string') {
       const pid = firebaseConfig.projectId.trim();
-      // Intento #1 (clásico)
-      let candidate = `https://${pid}-default-rtdb.firebaseio.com`;
-      firebaseConfig.databaseURL = candidate;
-      // Si tu proyecto usa el dominio nuevo y no conecta, cambiá manualmente a:
-      // `https://${pid}-default-rtdb.firebasedatabase.app`
+      firebaseConfig.databaseURL = `https://${pid}-default-rtdb.firebaseio.com`;
+      // Alternativa dominio nuevo:
+      // firebaseConfig.databaseURL = `https://${pid}-default-rtdb.firebasedatabase.app`;
     }
 
-    // App init
+    // Init
     const app = initializeApp(firebaseConfig);
     const db  = getDatabase(app);
 
+    // Estado por defecto
     const defaultState = {
       bo: "BO3",           // BO1 | BO3 | BO5
       matchType: "1v1",    // Tipo de match
       result: "0-0",       // Resultado estilo 1-1
-      opponent: "user",     // Usuario rival
+      opponent: "user",    // Usuario rival
       amount: "$0",        // Monto
       visible: true,
-      theme: "dark",        // dark | light
-      align: "left",        // left | center | right
+      theme: "dark",       // dark | light
+      align: "left",       // left | center | right
     };
 
+    // Parámetros
     const qs = new URLSearchParams(location.search);
     const view = qs.get('view') || 'overlay'; // overlay | control
     const room = qs.get('room') || 'default';
-    const key  = qs.get('key'); // simple llavecita para control
+    const key  = qs.get('key'); // llavecita simple para control
 
     const $ = (sel) => document.querySelector(sel);
     const appRoot = document.getElementById('app');
 
     const roomPath = (r) => `rooms/${r}`;
 
-    // Render helpers ---------------------------------------------------------
+    // Render Overlay
     function renderOverlay(state){
       const isLight = state.theme === 'light';
       const alignCls = state.align === 'center' ? 'align-center' : (state.align === 'right' ? 'align-right' : 'align-left');
@@ -133,6 +129,7 @@
       `;
     }
 
+    // Render Control
     function renderControl(state){
       if(!key){
         appRoot.innerHTML = `
@@ -302,19 +299,28 @@
       });
     }
 
-    // Simple escaping
-    const escapeHtml = (s='') => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+    // Escapes
+    const escapeHtml = (s = '') => {
+      const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+      return String(s).replace(/[&<>"']/g, m => map[m]);
+    };
     const escapeAttr = escapeHtml;
 
-    // Live data binding ------------------------------------------------------
+    // Live binding
     const r = ref(db, roomPath(room));
-    onValue(r, (snap) => {
-      const data = Object.assign({}, defaultState, snap.val()||{});
-      if(view === 'overlay') {
-        document.body.style.color = data.theme === 'light' ? 'var(--text-dark)' : 'var(--text)';
-        renderOverlay(data);
+    onValue(r, async (snap) => {
+      let data = snap.val();
+      if (!data) {
+        // Si la sala no existe aún, la creamos con defaultState para evitar “pantalla vacía”
+        await set(ref(db, roomPath(room)), defaultState);
+        data = defaultState;
+      }
+      const merged = Object.assign({}, defaultState, data || {});
+      if (view === 'overlay') {
+        document.body.style.color = merged.theme === 'light' ? 'var(--text-dark)' : 'var(--text)';
+        renderOverlay(merged);
       } else {
-        renderControl(data);
+        renderControl(merged);
       }
     });
   </script>
