@@ -7,8 +7,8 @@
   <style>
     :root {
       --bg: transparent;
-      --card-bg-dark: rgba(0,0,0,.45);
-      --card-bg-light: rgba(255,255,255,.70);
+      --card-bg-dark: #000; /* sólido */
+      --card-bg-light: #fff; /* sólido */
       --border-dark: rgba(255,255,255,.12);
       --border-light: rgba(0,0,0,.10);
       --text: #fff;
@@ -27,7 +27,7 @@
     .card { 
       display:inline-flex; align-items:center; gap:12px; padding:12px 16px;
       border-radius: var(--radius); border:1px solid var(--border-dark);
-      box-shadow: var(--shadow); backdrop-filter: blur(var(--blur));
+      box-shadow: var(--shadow); /* sin blur para sólido */
       /* ✅ fondo y color por defecto (oscuro) */
       background: var(--card-bg-dark);
       color: var(--text);
@@ -86,6 +86,7 @@
       // Alternativa dominio nuevo:
       // firebaseConfig.databaseURL = `https://${pid}-default-rtdb.firebasedatabase.app`;
     }
+
     // App init
     const app = initializeApp(firebaseConfig);
     const db  = getDatabase(app);
