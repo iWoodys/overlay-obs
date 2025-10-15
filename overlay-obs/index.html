@@ -1,332 +1,284 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { initializeApp, getApps } from "firebase/app";
-import { getDatabase, ref, onValue, set, update } from "firebase/database";
-import { Copy, Eye, EyeOff, RefreshCw, Link as LinkIcon, Save } from "lucide-react";
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Overlay OBS · Control Mods</title>
+  <style>
+    :root {
+      --bg: transparent;
+      --card-bg-dark: rgba(0,0,0,.45);
+      --card-bg-light: rgba(255,255,255,.70);
+      --border-dark: rgba(255,255,255,.12);
+      --border-light: rgba(0,0,0,.10);
+      --text: #fff;
+      --text-dark: #111;
+      --shadow: 0 8px 40px rgba(0,0,0,.35);
+      --radius: 16px;
+      --blur: 10px;
+      --font: system-ui, -apple-system, Segoe UI, Roboto, Inter, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji","Segoe UI Emoji";
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin:0; background: var(--bg); font-family: var(--font); }
+    .full { min-height: 100%; display: grid; place-items: center; padding: 24px; }
 
-// --- ✅ HOW TO USE (quick notes)
-// 1) Replace the Firebase config below with your project's credentials.
-// 2) Publish this single file (e.g., Vite/Next, or any static host that supports ESM).
-// 3) Two views in one URL:
-//    - Overlay (for OBS Browser Source):   ?view=overlay&room=CANAL
-//    - Control (for mods in a webpage):    ?view=control&room=CANAL&key=TU_MOD_KEY
-// 4) In OBS, add a Browser Source with the Overlay URL. Set "Custom CSS" to empty and enable transparency.
-// 5) Share only the control URL with trusted mods (the key is a simple shared secret; not bulletproof).
+    /* Overlay card */
+    .card { display:inline-flex; align-items:center; gap:12px; padding:12px 16px; border-radius: var(--radius); border:1px solid var(--border-dark); box-shadow: var(--shadow); backdrop-filter: blur(var(--blur)); }
+    .chip { opacity:.7 }
+    .txt-xl{ font-size: clamp(18px, 2.2vw, 28px); font-weight: 700; letter-spacing: -0.2px; }
+    .txt-lg{ font-size: clamp(16px, 2vw, 24px); font-weight: 600; }
 
-// --- 🔐 Replace with your Firebase config
-const firebaseConfig = {
-  apiKey: "AIzaSyB_ftb81GpcvFUVuydA8Crz5aaOwC3SAYo",
-  authDomain: "overlay-4a8e5.firebaseapp.com",
-  projectId: "overlay-4a8e5",
-  storageBucket: "overlay-4a8e5.firebasestorage.app",
-  messagingSenderId: "620671976127",
-  appId: "1:620671976127:web:757d18aee43f5a39007c0a"
-};
+    /* Control layout */
+    .wrap { max-width: 880px; margin: 0 auto; padding: 24px; color:#fff; }
+    .panel { background: rgba(17,17,17,.7); border:1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 16px; backdrop-filter: blur(8px); }
+    .row { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
+    .row-2 { display:grid; grid-template-columns: repeat(2, 1fr); gap:12px; }
+    label { font-size:12px; opacity:.8 }
+    input, select, button { width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color:#fff; outline:none; }
+    button { cursor:pointer; }
+    .muted{ opacity:.75 }
+    .space{ height: 12px; }
+    .flex{ display:flex; gap:8px; align-items:center; }
+    .right{ justify-content: flex-end; }
+    .preview { padding:14px; border-radius:12px; border:1px solid rgba(255,255,255,.12); background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03)); }
 
+    /* Align containers */
+    .align-left  { justify-content: flex-start; }
+    .align-center{ justify-content: center; }
+    .align-right { justify-content: flex-end; }
 
-// Initialize Firebase once
-function useFirebase() {
-  const app = useMemo(() => {
-    const existing = getApps();
-    return existing.length ? existing[0] : initializeApp(firebaseConfig);
-  }, []);
-  return { app, db: getDatabase() };
-}
+    /* Light/Dark helpers for overlay */
+    .light { color: var(--text-dark); border-color: var(--border-light) !important; background: var(--card-bg-light) !important; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
 
-// Helpers
-function useQuery() {
-  return useMemo(() => new URLSearchParams(window.location.search), []);
-}
+  <!-- Firebase v9 CDN (modular) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+    import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-database.js";
 
-function roomPath(room) {
-  return `rooms/${room || "default"}`;
-}
+    // 1) ⬇⬇⬇ PONE ACÁ TU CONFIG DE FIREBASE (de la consola) ⬇⬇⬇
+    const firebaseConfig = {
+      apiKey: "AIzaSyB_ftb81GpcvFUVuydA8Crz5aaOwC3SAYo",
+      authDomain: "overlay-4a8e5.firebaseapp.com",
+      databaseURL: "https://overlay-4a8e5-default-rtdb.firebaseio.com",
+      projectId: "overlay-4a8e5",
+      storageBucket: "overlay-4a8e5.firebasestorage.app",
+      messagingSenderId: "620671976127",
+      appId: "1:620671976127:web:757d18aee43f5a39007c0a",
+    };
+    // 1) ⬆⬆⬆ FIN CONFIG ⬆⬆⬆
 
-const defaultState = {
-  matchType: "1v1", // "1v1" | "2v2" (free text allowed)
-  opponent: "user",
-  amount: "$0",
-  visible: true,
-  theme: "dark", // "dark" | "light"
-  align: "left", // left | center | right
-};
+    // App init
+    const app = initializeApp(firebaseConfig);
+    const db  = getDatabase(app);
 
-// --- Overlay view
-function OverlayView({ db, room }) {
-  const [data, setData] = useState(defaultState);
+    const defaultState = {
+      matchType: "1v1",
+      opponent: "user",
+      amount: "$0",
+      visible: true,
+      theme: "dark", // dark | light
+      align: "left", // left | center | right
+    };
 
-  useEffect(() => {
-    const r = ref(db, roomPath(room));
-    return onValue(r, (snap) => {
-      const v = snap.val();
-      setData({ ...defaultState, ...(v || {}) });
-    });
-  }, [db, room]);
+    const qs = new URLSearchParams(location.search);
+    const view = qs.get('view') || 'overlay'; // overlay | control
+    const room = qs.get('room') || 'default';
+    const key  = qs.get('key'); // simple llavecita para control
 
-  const { matchType, opponent, amount, visible, theme, align } = data;
+    const $ = (sel) => document.querySelector(sel);
+    const appRoot = document.getElementById('app');
 
-  const alignClass = align === "center" ? "items-center justify-center" : align === "right" ? "items-end justify-end" : "items-start justify-start";
-  const isLight = theme === "light";
+    const roomPath = (r) => `rooms/${r}`;
 
-  return (
-    <div className={`w-screen h-screen ${isLight ? "" : ""}`} style={{ background: "transparent" }}>
-      <div className={`w-full h-full flex p-6 ${alignClass}`}>
-        <AnimatePresence>
-          {visible && (
-            <motion.div
-              key="card"
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ type: "spring", stiffness: 250, damping: 24 }}
-              className={`
-                max-w-[780px]
-                px-5 py-3
-                rounded-2xl
-                border
-                ${isLight ? "border-black/10 bg-white/70" : "border-white/12 bg-black/45"}
-                shadow-[0_8px_40px_rgba(0,0,0,0.35)]
-                backdrop-blur-md
-              `}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-xl md:text-2xl font-semibold tracking-tight drop-shadow-sm">
-                  {matchType}
-                </span>
-                <span className="opacity-70">|</span>
-                <span className="text-xl md:text-2xl font-medium tracking-tight">vs {opponent}</span>
-                <span className="opacity-70">|</span>
-                <span className="text-xl md:text-2xl font-bold tracking-tight">{amount}</span>
+    // Render helpers ---------------------------------------------------------
+    function renderOverlay(state){
+      const isLight = state.theme === 'light';
+      const alignCls = state.align === 'center' ? 'align-center' : (state.align === 'right' ? 'align-right' : 'align-left');
+      appRoot.innerHTML = `
+        <div class="full ${alignCls}">
+          ${state.visible ? `
+          <div class="card ${isLight ? 'light' : ''}">
+            <span class="txt-lg">${escapeHtml(state.matchType)}</span>
+            <span class="chip">|</span>
+            <span class="txt-lg">vs ${escapeHtml(state.opponent)}</span>
+            <span class="chip">|</span>
+            <span class="txt-xl">${escapeHtml(state.amount)}</span>
+          </div>` : ''}
+        </div>
+      `;
+    }
+
+    function renderControl(state){
+      if(!key){
+        appRoot.innerHTML = `
+          <div class="full">
+            <div class="wrap">
+              <div class="panel">
+                <h2>Acceso de moderadores</h2>
+                <p class="muted">Agrega <code>&key=TU_CLAVE</code> a la URL para entrar.
+                Ejemplo: <code>?view=control&room=miCanal&key=1234</code></p>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-}
+            </div>
+          </div>`;
+        return;
+      }
 
-// --- Control view
-function ControlView({ db, room, modKeyInUrl }) {
-  const [state, setState] = useState(defaultState);
-  const [saved, setSaved] = useState(false);
-  const [copied, setCopied] = useState("");
+      appRoot.innerHTML = `
+        <div class="wrap">
+          <h1 class="muted">Overlay Controller · Room: <code>${escapeHtml(room)}</code></h1>
+          <div class="space"></div>
 
-  useEffect(() => {
+          <div class="panel">
+            <div class="row">
+              <div>
+                <label>Tipo de match</label>
+                <input id="f-type" placeholder="1v1" value="${escapeAttr(state.matchType)}" />
+              </div>
+              <div>
+                <label>Usuario rival</label>
+                <input id="f-op" placeholder="@user" value="${escapeAttr(state.opponent)}" />
+              </div>
+              <div>
+                <label>Monto</label>
+                <input id="f-amt" placeholder="$0" value="${escapeAttr(state.amount)}" />
+              </div>
+            </div>
+
+            <div class="space"></div>
+
+            <div class="row">
+              <div>
+                <label>Tema</label>
+                <select id="f-theme">
+                  <option value="dark" ${state.theme==='dark'?'selected':''}>Oscuro</option>
+                  <option value="light" ${state.theme==='light'?'selected':''}>Claro</option>
+                </select>
+              </div>
+              <div>
+                <label>Alineación</label>
+                <select id="f-align">
+                  <option value="left" ${state.align==='left'?'selected':''}>Izquierda</option>
+                  <option value="center" ${state.align==='center'?'selected':''}>Centro</option>
+                  <option value="right" ${state.align==='right'?'selected':''}>Derecha</option>
+                </select>
+              </div>
+              <div class="flex right">
+                <button id="btn-save">Guardar</button>
+              </div>
+            </div>
+
+            <div class="space"></div>
+
+            <div class="row-2">
+              <button id="btn-toggle">${state.visible ? 'Ocultar' : 'Mostrar'}</button>
+              <button id="btn-reset">Reset</button>
+            </div>
+          </div>
+
+          <div class="space"></div>
+
+          <div class="panel">
+            <div class="muted">Preview</div>
+            <div class="space"></div>
+            <div class="preview" id="preview"></div>
+          </div>
+
+          <div class="space"></div>
+
+          <div class="panel">
+            <div class="row-2">
+              <button id="btn-copy-overlay">Copiar URL Overlay</button>
+              <button id="btn-copy-control">Copiar URL Control</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const $type  = document.getElementById('f-type');
+      const $op    = document.getElementById('f-op');
+      const $amt   = document.getElementById('f-amt');
+      const $theme = document.getElementById('f-theme');
+      const $align = document.getElementById('f-align');
+      const $save  = document.getElementById('btn-save');
+      const $toggle= document.getElementById('btn-toggle');
+      const $reset = document.getElementById('btn-reset');
+      const $prev  = document.getElementById('preview');
+      const $copyOv= document.getElementById('btn-copy-overlay');
+      const $copyCt= document.getElementById('btn-copy-control');
+
+      const renderPrev = () => {
+        $prev.innerHTML = `
+          <div class="card ${($theme.value==='light')?'light':''}">
+            <span class="txt-lg">${escapeHtml($type.value)}</span>
+            <span class="chip">|</span>
+            <span class="txt-lg">vs ${escapeHtml($op.value)}</span>
+            <span class="chip">|</span>
+            <span class="txt-xl">${escapeHtml($amt.value)}</span>
+          </div>`;
+      };
+      renderPrev();
+
+      $type.addEventListener('input', renderPrev);
+      $op.addEventListener('input', renderPrev);
+      $amt.addEventListener('input', renderPrev);
+      $theme.addEventListener('change', renderPrev);
+
+      $save.addEventListener('click', async () => {
+        await update(ref(db, roomPath(room)), {
+          matchType: $type.value,
+          opponent: $op.value,
+          amount: $amt.value,
+          theme: $theme.value,
+          align: $align.value,
+        });
+        alert('Guardado');
+      });
+
+      $toggle.addEventListener('click', async () => {
+        await update(ref(db, roomPath(room)), { visible: !state.visible });
+      });
+
+      $reset.addEventListener('click', async () => {
+        await set(ref(db, roomPath(room)), defaultState);
+      });
+
+      const makeUrl = (v) => {
+        const base = location.origin + location.pathname;
+        const q = new URLSearchParams({ view: v, room });
+        if(v==='control' && key) q.set('key', key);
+        return `${base}?${q.toString()}`;
+      };
+
+      $copyOv.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(makeUrl('overlay'));
+        alert('URL de Overlay copiada');
+      });
+      $copyCt.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(makeUrl('control'));
+        alert('URL de Control copiada');
+      });
+    }
+
+    // Simple escaping
+    const escapeHtml = (s='') => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+    const escapeAttr = escapeHtml;
+
+    // Live data binding ------------------------------------------------------
     const r = ref(db, roomPath(room));
-    return onValue(r, (snap) => {
-      const v = snap.val();
-      if (v) setState((s) => ({ ...s, ...v }));
+    onValue(r, (snap) => {
+      const data = Object.assign({}, defaultState, snap.val()||{});
+      if(view === 'overlay') {
+        document.body.style.color = data.theme === 'light' ? 'var(--text-dark)' : 'var(--text)';
+        renderOverlay(data);
+      } else {
+        renderControl(data);
+      }
     });
-  }, [db, room]);
-
-  const updateField = (patch) => setState((s) => ({ ...s, ...patch }));
-  const persist = async () => {
-    await update(ref(db, roomPath(room)), state);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1200);
-  };
-
-  const toggleVisible = async () => {
-    await update(ref(db, roomPath(room)), { visible: !state.visible });
-  };
-
-  const reset = async () => {
-    await set(ref(db, roomPath(room)), defaultState);
-  };
-
-  const makeUrl = (view) => {
-    const base = window.location.origin + window.location.pathname;
-    const qs = new URLSearchParams({ view, room });
-    if (view === "control" && modKeyInUrl) qs.set("key", modKeyInUrl);
-    return `${base}?${qs.toString()}`;
-  };
-
-  const copyToClipboard = async (text, label) => {
-    await navigator.clipboard.writeText(text);
-    setCopied(label);
-    setTimeout(() => setCopied(""), 1200);
-  };
-
-  // simple shared-secret gate in URL (?key=...)
-  if (!modKeyInUrl) {
-    return (
-      <div className="min-h-screen bg-neutral-950 text-neutral-50 flex items-center justify-center p-8">
-        <div className="max-w-xl w-full bg-neutral-900/60 border border-white/10 rounded-2xl p-6 backdrop-blur">
-          <h1 className="text-2xl font-semibold mb-2">Acceso de Moderadores</h1>
-          <p className="opacity-80 mb-4">
-            Para usar el panel, agrega <span className="font-mono">&key=TU_MOD_KEY</span> en la URL.
-            Ejemplo: <span className="font-mono">?view=control&room=miCanal&key=1234</span>
-          </p>
-          <p className="opacity-70">Comparte esta URL sólo con tus moderadores de confianza.</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-50 p-6">
-      <div className="max-w-3xl mx-auto grid gap-6">
-        <header className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold tracking-tight">Overlay Controller · Room: <span className="font-mono">{room}</span></h1>
-          <div className="flex gap-2">
-            <button
-              onClick={() => copyToClipboard(makeUrl("overlay"), "overlay")}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
-              title="Copiar URL de Overlay"
-            >
-              <LinkIcon size={18} /> Overlay
-            </button>
-            <button
-              onClick={() => copyToClipboard(makeUrl("control"), "control")}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
-              title="Copiar URL de Control"
-            >
-              <Copy size={18} /> Control
-            </button>
-          </div>
-        </header>
-
-        {/* Live Preview card */}
-        <div className="bg-neutral-900/60 border border-white/10 rounded-2xl p-5 backdrop-blur">
-          <div className="flex items-center justify-between mb-3">
-            <span className="font-medium opacity-90">Preview en vivo</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={toggleVisible}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
-              >
-                {state.visible ? <Eye size={18} /> : <EyeOff size={18} />}
-                {state.visible ? "Ocultar" : "Mostrar"}
-              </button>
-              <button
-                onClick={reset}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
-                title="Resetear a valores por defecto"
-              >
-                <RefreshCw size={18} /> Reset
-              </button>
-            </div>
-          </div>
-          <div className="p-4 rounded-xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.03]">
-            <div className="flex items-center gap-3">
-              <span className="text-lg font-semibold">{state.matchType}</span>
-              <span className="opacity-70">|</span>
-              <span className="text-lg">vs {state.opponent}</span>
-              <span className="opacity-70">|</span>
-              <span className="text-lg font-bold">{state.amount}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Form */}
-        <div className="bg-neutral-900/60 border border-white/10 rounded-2xl p-5 backdrop-blur grid gap-4">
-          <div className="grid md:grid-cols-3 gap-4">
-            <Field label="Tipo de match" hint="1v1 o 2v2 (texto libre)">
-              <input
-                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
-                value={state.matchType}
-                onChange={(e) => updateField({ matchType: e.target.value })}
-                placeholder="1v1"
-              />
-            </Field>
-            <Field label="Usuario rival" hint="@user o nombre">
-              <input
-                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
-                value={state.opponent}
-                onChange={(e) => updateField({ opponent: e.target.value })}
-                placeholder="usuario"
-              />
-            </Field>
-            <Field label="Monto" hint="$5000 o 10 USD">
-              <input
-                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
-                value={state.amount}
-                onChange={(e) => updateField({ amount: e.target.value })}
-                placeholder="$0"
-              />
-            </Field>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-4">
-            <Field label="Tema">
-              <select
-                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
-                value={state.theme}
-                onChange={(e) => updateField({ theme: e.target.value })}
-              >
-                <option value="dark">Oscuro</option>
-                <option value="light">Claro</option>
-              </select>
-            </Field>
-            <Field label="Alineación">
-              <select
-                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
-                value={state.align}
-                onChange={(e) => updateField({ align: e.target.value })}
-              >
-                <option value="left">Izquierda</option>
-                <option value="center">Centro</option>
-                <option value="right">Derecha</option>
-              </select>
-            </Field>
-            <div className="flex items-end">
-              <button
-                onClick={persist}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 w-full justify-center"
-                title="Guardar cambios"
-              >
-                <Save size={18} /> {saved ? "Guardado" : "Guardar"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Tips */}
-        <div className="text-sm opacity-70">
-          <p>
-            <b>OBS:</b> Agregá un Browser Source con la URL del overlay. Recomendado: ancho 1920, alto 1080, FPS 60, habilitar transparencia.
-          </p>
-          <p>
-            <b>Varios canales/salas:</b> Cambiá el parámetro <span className="font-mono">room</span> para tener overlays independientes.
-          </p>
-        </div>
-
-        {/* Copy feedback */}
-        <AnimatePresence>
-          {copied && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              className="fixed bottom-6 right-6 bg-white/90 text-neutral-900 rounded-xl px-4 py-2 shadow-lg"
-            >
-              URL de {copied} copiada
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, hint, children }) {
-  return (
-    <label className="grid gap-1">
-      <span className="text-sm opacity-80">{label}</span>
-      {children}
-      {hint && <span className="text-xs opacity-60">{hint}</span>}
-    </label>
-  );
-}
-
-export default function App() {
-  const { db } = useFirebase();
-  const q = useQuery();
-  const view = q.get("view") || "overlay"; // default overlay for quick OBS test
-  const room = q.get("room") || "default";
-  const modKey = q.get("key");
-
-  if (view === "control") return <ControlView db={db} room={room} modKeyInUrl={modKey} />;
-  return <OverlayView db={db} room={room} />;
-}
+  </script>
+</body>
+</html>
