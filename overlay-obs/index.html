@@ -24,12 +24,11 @@
     .full { min-height: 100%; display: grid; place-items: center; padding: 24px; }
 
     /* Overlay card */
-    .card { 
+    .card {
       display:inline-flex; align-items:center; gap:12px; padding:12px 16px;
       border-radius: var(--radius); border:1px solid var(--border-dark);
-      box-shadow: var(--shadow); /* sin blur para sólido */
-      /* ✅ fondo y color por defecto (oscuro) */
-      background: var(--card-bg-dark);
+      box-shadow: var(--shadow);
+      background: var(--card-bg-dark); /* oscuro por defecto */
       color: var(--text);
     }
     .chip { opacity:.7 }
@@ -56,8 +55,12 @@
     .align-center{ justify-content: center; }
     .align-right { justify-content: flex-end; }
 
-    /* Light/Dark helpers for overlay */
-    .light { color: var(--text-dark); border-color: var(--border-light) !important; background: var(--card-bg-light) !important; }
+    /* Light theme override */
+    .light {
+      color: var(--text-dark);
+      border-color: var(--border-light) !important;
+      background: var(--card-bg-light) !important;
+    }
   </style>
 </head>
 <body>
@@ -68,7 +71,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
     import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-database.js";
 
-    // 1) ⬇⬇⬇ PONE ACÁ TU CONFIG DE FIREBASE (de la consola). Si no tenés databaseURL, el script la intenta deducir.
+    // === Config de Firebase (UNA sola declaración)
     const firebaseConfig = {
       apiKey: "AIzaSyB_ftb81GpcvFUVuydA8Crz5aaOwC3SAYo",
       authDomain: "overlay-4a8e5.firebaseapp.com",
@@ -79,43 +82,40 @@
       appId: "1:620671976127:web:757d18aee43f5a39007c0a"
     };
 
-    // (Opcional) Deducción automática si faltara databaseURL
-    if (!firebaseConfig.databaseURL && firebaseConfig.projectId && typeof firebaseConfig.projectId === 'string') {
-      const pid = firebaseConfig.projectId.trim();
-      firebaseConfig.databaseURL = `https://${pid}-default-rtdb.firebaseio.com`;
-      // Alternativa dominio nuevo:
-      // firebaseConfig.databaseURL = `https://${pid}-default-rtdb.firebasedatabase.app`;
-    }
-
-    // App init
+    // Init
     const app = initializeApp(firebaseConfig);
     const db  = getDatabase(app);
 
+    // Estado por defecto
     const defaultState = {
-      bo: "BO3",           // BO1 | BO3 | BO5
-      matchType: "1v1",    // Tipo de match
-      result: "0-0",       // Resultado estilo 1-1
-      opponent: "user",     // Usuario rival
-      amount: "$0",        // Monto
+      bo: "BO3",         // BO1 | BO3 | BO5
+      matchType: "1v1",  // 1v1 | 2v2
+      result: "0-0",
+      teamUser: "",      // tu usuario/equipo (solo 2v2)
+      opponent: "user",  // rival o equipo rival
+      amount: "$0",
       visible: true,
-      theme: "dark",        // dark | light
-      align: "left",        // left | center | right
+      theme: "dark",     // dark | light
+      align: "left",     // left | center | right
     };
 
+    // Parámetros
     const qs = new URLSearchParams(location.search);
     const view = qs.get('view') || 'overlay'; // overlay | control
     const room = qs.get('room') || 'default';
-    const key  = qs.get('key'); // simple llavecita para control
+    const key  = qs.get('key'); // llavecita simple para control
 
     const $ = (sel) => document.querySelector(sel);
     const appRoot = document.getElementById('app');
-
     const roomPath = (r) => `rooms/${r}`;
 
-    // Render helpers ---------------------------------------------------------
+    // ========== RENDER OVERLAY ==========
     function renderOverlay(state){
       const isLight = state.theme === 'light';
       const alignCls = state.align === 'center' ? 'align-center' : (state.align === 'right' ? 'align-right' : 'align-left');
+      const is2v2 = state.matchType === '2v2';
+      const teamPart = is2v2 ? `<span class="txt-lg">${escapeHtml(state.teamUser||'')}</span><span class="chip">|</span>` : '';
+
       appRoot.innerHTML = `
         <div class="full ${alignCls}">
           ${state.visible ? `
@@ -126,14 +126,16 @@
             <span class="chip">|</span>
             <span class="txt-lg">${escapeHtml(state.result)}</span>
             <span class="chip">|</span>
+            ${teamPart}
             <span class="txt-lg">vs ${escapeHtml(state.opponent)}</span>
             <span class="chip">|</span>
             <span class="txt-xl">${escapeHtml(state.amount)}</span>
-          </div>` : ''}
+          </div>` : ``}
         </div>
       `;
     }
 
+    // ========== RENDER CONTROL ==========
     function renderControl(state){
       if(!key){
         appRoot.innerHTML = `
@@ -148,6 +150,8 @@
           </div>`;
         return;
       }
+
+      const is2v2 = state.matchType === '2v2';
 
       appRoot.innerHTML = `
         <div class="wrap">
@@ -166,15 +170,22 @@
               </div>
               <div>
                 <label>Tipo de match</label>
-                <input id="f-type" placeholder="1v1 / 2v2" value="${escapeAttr(state.matchType)}" />
+                <select id="f-type">
+                  <option value="1v1" ${state.matchType==='1v1'?'selected':''}>1v1</option>
+                  <option value="2v2" ${state.matchType==='2v2'?'selected':''}>2v2</option>
+                </select>
               </div>
               <div>
                 <label>Resultado</label>
                 <input id="f-res" placeholder="1-1" value="${escapeAttr(state.result)}" />
               </div>
               <div>
-                <label>Usuario rival</label>
-                <input id="f-op" placeholder="@user" value="${escapeAttr(state.opponent)}" />
+                <label>Usuario equipo</label>
+                <input id="f-team" placeholder="tu equipo" value="${escapeAttr(state.teamUser||'')}" style="display:${is2v2?'block':'none'}" />
+              </div>
+              <div>
+                <label>Usuario rival / equipo rival</label>
+                <input id="f-op" placeholder="@rival o equipo" value="${escapeAttr(state.opponent)}" />
               </div>
               <div>
                 <label>Monto</label>
@@ -235,6 +246,7 @@
       const $bo    = document.getElementById('f-bo');
       const $type  = document.getElementById('f-type');
       const $res   = document.getElementById('f-res');
+      const $team  = document.getElementById('f-team');
       const $op    = document.getElementById('f-op');
       const $amt   = document.getElementById('f-amt');
       const $theme = document.getElementById('f-theme');
@@ -247,6 +259,13 @@
       const $copyCt= document.getElementById('btn-copy-control');
 
       const renderPrev = () => {
+        const is2v2p = ($type.value === '2v2');
+        if ($team) $team.style.display = is2v2p ? 'block' : 'none';
+
+        const teamPart = is2v2p
+          ? `${escapeHtml($team.value)} <span class="chip">|</span>`
+          : '';
+
         $prev.innerHTML = `
           <div class="card ${($theme.value==='light')?'light':''}">
             <span class="txt-lg">${escapeHtml($bo.value)}</span>
@@ -255,6 +274,7 @@
             <span class="chip">|</span>
             <span class="txt-lg">${escapeHtml($res.value)}</span>
             <span class="chip">|</span>
+            ${teamPart}
             <span class="txt-lg">vs ${escapeHtml($op.value)}</span>
             <span class="chip">|</span>
             <span class="txt-xl">${escapeHtml($amt.value)}</span>
@@ -262,7 +282,7 @@
       };
       renderPrev();
 
-      [$bo,$type,$res,$op,$amt].forEach(el=>el.addEventListener('input', renderPrev));
+      [$bo,$type,$res,$team,$op,$amt].forEach(el=>el.addEventListener('input', renderPrev));
       $theme.addEventListener('change', renderPrev);
 
       $save.addEventListener('click', async () => {
@@ -270,6 +290,7 @@
           bo: $bo.value,
           matchType: $type.value,
           result: $res.value,
+          teamUser: $team.value,
           opponent: $op.value,
           amount: $amt.value,
           theme: $theme.value,
@@ -303,22 +324,27 @@
       });
     }
 
-    // Simple escaping
+    // Escapes
     const escapeHtml = (s = '') => {
       const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
       return String(s).replace(/[&<>"']/g, (m) => map[m]);
     };
     const escapeAttr = escapeHtml;
 
-    // Live data binding ------------------------------------------------------
+    // Live binding
     const r = ref(db, roomPath(room));
-    onValue(r, (snap) => {
-      const data = Object.assign({}, defaultState, snap.val()||{});
-      if(view === 'overlay') {
-        document.body.style.color = data.theme === 'light' ? 'var(--text-dark)' : 'var(--text)';
-        renderOverlay(data);
+    onValue(r, async (snap) => {
+      let data = snap.val();
+      if (!data) {
+        await set(ref(db, roomPath(room)), defaultState);
+        data = defaultState;
+      }
+      const merged = Object.assign({}, defaultState, data || {});
+      if (view === 'overlay') {
+        document.body.style.color = merged.theme === 'light' ? 'var(--text-dark)' : 'var(--text)';
+        renderOverlay(merged);
       } else {
-        renderControl(data);
+        renderControl(merged);
       }
     });
   </script>
