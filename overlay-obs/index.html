@@ -1,0 +1,332 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { initializeApp, getApps } from "firebase/app";
+import { getDatabase, ref, onValue, set, update } from "firebase/database";
+import { Copy, Eye, EyeOff, RefreshCw, Link as LinkIcon, Save } from "lucide-react";
+
+// --- ✅ HOW TO USE (quick notes)
+// 1) Replace the Firebase config below with your project's credentials.
+// 2) Publish this single file (e.g., Vite/Next, or any static host that supports ESM).
+// 3) Two views in one URL:
+//    - Overlay (for OBS Browser Source):   ?view=overlay&room=CANAL
+//    - Control (for mods in a webpage):    ?view=control&room=CANAL&key=TU_MOD_KEY
+// 4) In OBS, add a Browser Source with the Overlay URL. Set "Custom CSS" to empty and enable transparency.
+// 5) Share only the control URL with trusted mods (the key is a simple shared secret; not bulletproof).
+
+// --- 🔐 Replace with your Firebase config
+const firebaseConfig = {
+  apiKey: "REPLACE_ME",
+  authDomain: "REPLACE_ME.firebaseapp.com",
+  databaseURL: "https://REPLACE_ME-default-rtdb.firebaseio.com",
+  projectId: "REPLACE_ME",
+  storageBucket: "REPLACE_ME.appspot.com",
+  messagingSenderId: "REPLACE_ME",
+  appId: "REPLACE_ME",
+};
+
+// Initialize Firebase once
+function useFirebase() {
+  const app = useMemo(() => {
+    const existing = getApps();
+    return existing.length ? existing[0] : initializeApp(firebaseConfig);
+  }, []);
+  return { app, db: getDatabase() };
+}
+
+// Helpers
+function useQuery() {
+  return useMemo(() => new URLSearchParams(window.location.search), []);
+}
+
+function roomPath(room) {
+  return `rooms/${room || "default"}`;
+}
+
+const defaultState = {
+  matchType: "1v1", // "1v1" | "2v2" (free text allowed)
+  opponent: "user",
+  amount: "$0",
+  visible: true,
+  theme: "dark", // "dark" | "light"
+  align: "left", // left | center | right
+};
+
+// --- Overlay view
+function OverlayView({ db, room }) {
+  const [data, setData] = useState(defaultState);
+
+  useEffect(() => {
+    const r = ref(db, roomPath(room));
+    return onValue(r, (snap) => {
+      const v = snap.val();
+      setData({ ...defaultState, ...(v || {}) });
+    });
+  }, [db, room]);
+
+  const { matchType, opponent, amount, visible, theme, align } = data;
+
+  const alignClass = align === "center" ? "items-center justify-center" : align === "right" ? "items-end justify-end" : "items-start justify-start";
+  const isLight = theme === "light";
+
+  return (
+    <div className={`w-screen h-screen ${isLight ? "" : ""}`} style={{ background: "transparent" }}>
+      <div className={`w-full h-full flex p-6 ${alignClass}`}>
+        <AnimatePresence>
+          {visible && (
+            <motion.div
+              key="card"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ type: "spring", stiffness: 250, damping: 24 }}
+              className={`
+                max-w-[780px]
+                px-5 py-3
+                rounded-2xl
+                border
+                ${isLight ? "border-black/10 bg-white/70" : "border-white/12 bg-black/45"}
+                shadow-[0_8px_40px_rgba(0,0,0,0.35)]
+                backdrop-blur-md
+              `}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xl md:text-2xl font-semibold tracking-tight drop-shadow-sm">
+                  {matchType}
+                </span>
+                <span className="opacity-70">|</span>
+                <span className="text-xl md:text-2xl font-medium tracking-tight">vs {opponent}</span>
+                <span className="opacity-70">|</span>
+                <span className="text-xl md:text-2xl font-bold tracking-tight">{amount}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// --- Control view
+function ControlView({ db, room, modKeyInUrl }) {
+  const [state, setState] = useState(defaultState);
+  const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState("");
+
+  useEffect(() => {
+    const r = ref(db, roomPath(room));
+    return onValue(r, (snap) => {
+      const v = snap.val();
+      if (v) setState((s) => ({ ...s, ...v }));
+    });
+  }, [db, room]);
+
+  const updateField = (patch) => setState((s) => ({ ...s, ...patch }));
+  const persist = async () => {
+    await update(ref(db, roomPath(room)), state);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1200);
+  };
+
+  const toggleVisible = async () => {
+    await update(ref(db, roomPath(room)), { visible: !state.visible });
+  };
+
+  const reset = async () => {
+    await set(ref(db, roomPath(room)), defaultState);
+  };
+
+  const makeUrl = (view) => {
+    const base = window.location.origin + window.location.pathname;
+    const qs = new URLSearchParams({ view, room });
+    if (view === "control" && modKeyInUrl) qs.set("key", modKeyInUrl);
+    return `${base}?${qs.toString()}`;
+  };
+
+  const copyToClipboard = async (text, label) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied(""), 1200);
+  };
+
+  // simple shared-secret gate in URL (?key=...)
+  if (!modKeyInUrl) {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-neutral-50 flex items-center justify-center p-8">
+        <div className="max-w-xl w-full bg-neutral-900/60 border border-white/10 rounded-2xl p-6 backdrop-blur">
+          <h1 className="text-2xl font-semibold mb-2">Acceso de Moderadores</h1>
+          <p className="opacity-80 mb-4">
+            Para usar el panel, agrega <span className="font-mono">&key=TU_MOD_KEY</span> en la URL.
+            Ejemplo: <span className="font-mono">?view=control&room=miCanal&key=1234</span>
+          </p>
+          <p className="opacity-70">Comparte esta URL sólo con tus moderadores de confianza.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-neutral-950 text-neutral-50 p-6">
+      <div className="max-w-3xl mx-auto grid gap-6">
+        <header className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold tracking-tight">Overlay Controller · Room: <span className="font-mono">{room}</span></h1>
+          <div className="flex gap-2">
+            <button
+              onClick={() => copyToClipboard(makeUrl("overlay"), "overlay")}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
+              title="Copiar URL de Overlay"
+            >
+              <LinkIcon size={18} /> Overlay
+            </button>
+            <button
+              onClick={() => copyToClipboard(makeUrl("control"), "control")}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
+              title="Copiar URL de Control"
+            >
+              <Copy size={18} /> Control
+            </button>
+          </div>
+        </header>
+
+        {/* Live Preview card */}
+        <div className="bg-neutral-900/60 border border-white/10 rounded-2xl p-5 backdrop-blur">
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-medium opacity-90">Preview en vivo</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleVisible}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
+              >
+                {state.visible ? <Eye size={18} /> : <EyeOff size={18} />}
+                {state.visible ? "Ocultar" : "Mostrar"}
+              </button>
+              <button
+                onClick={reset}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10"
+                title="Resetear a valores por defecto"
+              >
+                <RefreshCw size={18} /> Reset
+              </button>
+            </div>
+          </div>
+          <div className="p-4 rounded-xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.03]">
+            <div className="flex items-center gap-3">
+              <span className="text-lg font-semibold">{state.matchType}</span>
+              <span className="opacity-70">|</span>
+              <span className="text-lg">vs {state.opponent}</span>
+              <span className="opacity-70">|</span>
+              <span className="text-lg font-bold">{state.amount}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Form */}
+        <div className="bg-neutral-900/60 border border-white/10 rounded-2xl p-5 backdrop-blur grid gap-4">
+          <div className="grid md:grid-cols-3 gap-4">
+            <Field label="Tipo de match" hint="1v1 o 2v2 (texto libre)">
+              <input
+                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
+                value={state.matchType}
+                onChange={(e) => updateField({ matchType: e.target.value })}
+                placeholder="1v1"
+              />
+            </Field>
+            <Field label="Usuario rival" hint="@user o nombre">
+              <input
+                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
+                value={state.opponent}
+                onChange={(e) => updateField({ opponent: e.target.value })}
+                placeholder="usuario"
+              />
+            </Field>
+            <Field label="Monto" hint="$5000 o 10 USD">
+              <input
+                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
+                value={state.amount}
+                onChange={(e) => updateField({ amount: e.target.value })}
+                placeholder="$0"
+              />
+            </Field>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <Field label="Tema">
+              <select
+                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
+                value={state.theme}
+                onChange={(e) => updateField({ theme: e.target.value })}
+              >
+                <option value="dark">Oscuro</option>
+                <option value="light">Claro</option>
+              </select>
+            </Field>
+            <Field label="Alineación">
+              <select
+                className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 outline-none focus:ring-2 focus:ring-white/20"
+                value={state.align}
+                onChange={(e) => updateField({ align: e.target.value })}
+              >
+                <option value="left">Izquierda</option>
+                <option value="center">Centro</option>
+                <option value="right">Derecha</option>
+              </select>
+            </Field>
+            <div className="flex items-end">
+              <button
+                onClick={persist}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 w-full justify-center"
+                title="Guardar cambios"
+              >
+                <Save size={18} /> {saved ? "Guardado" : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Tips */}
+        <div className="text-sm opacity-70">
+          <p>
+            <b>OBS:</b> Agregá un Browser Source con la URL del overlay. Recomendado: ancho 1920, alto 1080, FPS 60, habilitar transparencia.
+          </p>
+          <p>
+            <b>Varios canales/salas:</b> Cambiá el parámetro <span className="font-mono">room</span> para tener overlays independientes.
+          </p>
+        </div>
+
+        {/* Copy feedback */}
+        <AnimatePresence>
+          {copied && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              className="fixed bottom-6 right-6 bg-white/90 text-neutral-900 rounded-xl px-4 py-2 shadow-lg"
+            >
+              URL de {copied} copiada
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, hint, children }) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-sm opacity-80">{label}</span>
+      {children}
+      {hint && <span className="text-xs opacity-60">{hint}</span>}
+    </label>
+  );
+}
+
+export default function App() {
+  const { db } = useFirebase();
+  const q = useQuery();
+  const view = q.get("view") || "overlay"; // default overlay for quick OBS test
+  const room = q.get("room") || "default";
+  const modKey = q.get("key");
+
+  if (view === "control") return <ControlView db={db} room={room} modKeyInUrl={modKey} />;
+  return <OverlayView db={db} room={room} />;
+}
