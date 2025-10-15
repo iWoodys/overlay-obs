@@ -34,6 +34,7 @@
     .panel { background: rgba(17,17,17,.7); border:1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 16px; backdrop-filter: blur(8px); }
     .row { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
     .row-2 { display:grid; grid-template-columns: repeat(2, 1fr); gap:12px; }
+    .row-5 { display:grid; grid-template-columns: repeat(5, 1fr); gap:12px; }
     label { font-size:12px; opacity:.8 }
     input, select, button { width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color:#fff; outline:none; }
     button { cursor:pointer; }
@@ -60,8 +61,9 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
     import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-database.js";
 
-    // 1) ⬇⬇⬇ PONE ACÁ TU CONFIG DE FIREBASE (de la consola) ⬇⬇⬇
-    const firebaseConfig = {
+    // 1) ⬇⬇⬇ PONE ACÁ TU CONFIG DE FIREBASE (de la consola). Si no tenés databaseURL, el script la intenta deducir.
+    let firebaseConfig = {
+      const firebaseConfig = {
       apiKey: "AIzaSyB_ftb81GpcvFUVuydA8Crz5aaOwC3SAYo",
       authDomain: "overlay-4a8e5.firebaseapp.com",
       databaseURL: "https://overlay-4a8e5-default-rtdb.firebaseio.com",
@@ -70,19 +72,33 @@
       messagingSenderId: "620671976127",
       appId: "1:620671976127:web:757d18aee43f5a39007c0a",
     };
-    // 1) ⬆⬆⬆ FIN CONFIG ⬆⬆⬆
+
+    // 👉 Si falta databaseURL, intentamos deducirla automáticamente
+    // Formatos posibles:
+    //  - https://<PROJECT_ID>-default-rtdb.firebaseio.com
+    //  - https://<PROJECT_ID>-default-rtdb.firebasedatabase.app
+    if (!firebaseConfig.databaseURL && firebaseConfig.projectId && typeof firebaseConfig.projectId === 'string') {
+      const pid = firebaseConfig.projectId.trim();
+      // Intento #1 (clásico)
+      let candidate = `https://${pid}-default-rtdb.firebaseio.com`;
+      firebaseConfig.databaseURL = candidate;
+      // Si tu proyecto usa el dominio nuevo y no conecta, cambiá manualmente a:
+      // `https://${pid}-default-rtdb.firebasedatabase.app`
+    }
 
     // App init
     const app = initializeApp(firebaseConfig);
     const db  = getDatabase(app);
 
     const defaultState = {
-      matchType: "1v1",
-      opponent: "user",
-      amount: "$0",
+      bo: "BO3",           // BO1 | BO3 | BO5
+      matchType: "1v1",    // Tipo de match
+      result: "0-0",       // Resultado estilo 1-1
+      opponent: "user",     // Usuario rival
+      amount: "$0",        // Monto
       visible: true,
-      theme: "dark", // dark | light
-      align: "left", // left | center | right
+      theme: "dark",        // dark | light
+      align: "left",        // left | center | right
     };
 
     const qs = new URLSearchParams(location.search);
@@ -103,7 +119,11 @@
         <div class="full ${alignCls}">
           ${state.visible ? `
           <div class="card ${isLight ? 'light' : ''}">
+            <span class="txt-lg">${escapeHtml(state.bo)}</span>
+            <span class="chip">|</span>
             <span class="txt-lg">${escapeHtml(state.matchType)}</span>
+            <span class="chip">|</span>
+            <span class="txt-lg">${escapeHtml(state.result)}</span>
             <span class="chip">|</span>
             <span class="txt-lg">vs ${escapeHtml(state.opponent)}</span>
             <span class="chip">|</span>
@@ -134,10 +154,22 @@
           <div class="space"></div>
 
           <div class="panel">
-            <div class="row">
+            <div class="row-5">
+              <div>
+                <label>BO</label>
+                <select id="f-bo">
+                  <option value="BO1" ${state.bo==='BO1'?'selected':''}>BO1</option>
+                  <option value="BO3" ${state.bo==='BO3'?'selected':''}>BO3</option>
+                  <option value="BO5" ${state.bo==='BO5'?'selected':''}>BO5</option>
+                </select>
+              </div>
               <div>
                 <label>Tipo de match</label>
-                <input id="f-type" placeholder="1v1" value="${escapeAttr(state.matchType)}" />
+                <input id="f-type" placeholder="1v1 / 2v2" value="${escapeAttr(state.matchType)}" />
+              </div>
+              <div>
+                <label>Resultado</label>
+                <input id="f-res" placeholder="1-1" value="${escapeAttr(state.result)}" />
               </div>
               <div>
                 <label>Usuario rival</label>
@@ -199,7 +231,9 @@
         </div>
       `;
 
+      const $bo    = document.getElementById('f-bo');
       const $type  = document.getElementById('f-type');
+      const $res   = document.getElementById('f-res');
       const $op    = document.getElementById('f-op');
       const $amt   = document.getElementById('f-amt');
       const $theme = document.getElementById('f-theme');
@@ -214,7 +248,11 @@
       const renderPrev = () => {
         $prev.innerHTML = `
           <div class="card ${($theme.value==='light')?'light':''}">
+            <span class="txt-lg">${escapeHtml($bo.value)}</span>
+            <span class="chip">|</span>
             <span class="txt-lg">${escapeHtml($type.value)}</span>
+            <span class="chip">|</span>
+            <span class="txt-lg">${escapeHtml($res.value)}</span>
             <span class="chip">|</span>
             <span class="txt-lg">vs ${escapeHtml($op.value)}</span>
             <span class="chip">|</span>
@@ -223,14 +261,14 @@
       };
       renderPrev();
 
-      $type.addEventListener('input', renderPrev);
-      $op.addEventListener('input', renderPrev);
-      $amt.addEventListener('input', renderPrev);
+      [$bo,$type,$res,$op,$amt].forEach(el=>el.addEventListener('input', renderPrev));
       $theme.addEventListener('change', renderPrev);
 
       $save.addEventListener('click', async () => {
         await update(ref(db, roomPath(room)), {
+          bo: $bo.value,
           matchType: $type.value,
+          result: $res.value,
           opponent: $op.value,
           amount: $amt.value,
           theme: $theme.value,
