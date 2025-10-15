@@ -69,29 +69,23 @@
     import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-database.js";
 
     // 1) ⬇⬇⬇ PONE ACÁ TU CONFIG DE FIREBASE (de la consola). Si no tenés databaseURL, el script la intenta deducir.
-    let firebaseConfig = {
-      apiKey: "REPLACE_ME",
-      authDomain: "REPLACE_ME.firebaseapp.com",
-      // databaseURL: "(opcional si no te aparece)",
-      projectId: "REPLACE_ME",
-      storageBucket: "REPLACE_ME.appspot.com",
-      messagingSenderId: "REPLACE_ME",
-      appId: "REPLACE_ME",
+    const firebaseConfig = {
+      apiKey: "AIzaSyB_ftb81GpcvFUVuydA8Crz5aaOwC3SAYo",
+      authDomain: "overlay-4a8e5.firebaseapp.com",
+      databaseURL: "https://overlay-4a8e5-default-rtdb.firebaseio.com",
+      projectId: "overlay-4a8e5",
+      storageBucket: "overlay-4a8e5.firebasestorage.app",
+      messagingSenderId: "620671976127",
+      appId: "1:620671976127:web:757d18aee43f5a39007c0a"
     };
 
-    // 👉 Si falta databaseURL, intentamos deducirla automáticamente
-    // Formatos posibles:
-    //  - https://<PROJECT_ID>-default-rtdb.firebaseio.com
-    //  - https://<PROJECT_ID>-default-rtdb.firebasedatabase.app
+    // (Opcional) Deducción automática si faltara databaseURL
     if (!firebaseConfig.databaseURL && firebaseConfig.projectId && typeof firebaseConfig.projectId === 'string') {
       const pid = firebaseConfig.projectId.trim();
-      // Intento #1 (clásico)
-      let candidate = `https://${pid}-default-rtdb.firebaseio.com`;
-      firebaseConfig.databaseURL = candidate;
-      // Si tu proyecto usa el dominio nuevo y no conecta, cambiá manualmente a:
-      // `https://${pid}-default-rtdb.firebasedatabase.app`
+      firebaseConfig.databaseURL = `https://${pid}-default-rtdb.firebaseio.com`;
+      // Alternativa dominio nuevo:
+      // firebaseConfig.databaseURL = `https://${pid}-default-rtdb.firebasedatabase.app`;
     }
-
     // App init
     const app = initializeApp(firebaseConfig);
     const db  = getDatabase(app);
